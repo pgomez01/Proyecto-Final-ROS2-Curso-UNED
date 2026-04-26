@@ -1,0 +1,13 @@
+# 1. GOAL (Coordenadas enviadas por el nodo controlador)
+float64 target_x
+float64 target_y
+float64 target_z
+---
+# 2. RESULT (Mensaje al terminar el vuelo)
+bool success
+string message
+---
+#3. FEEDBACK (Información en tiempo real durante el vuelo)
+float64 distance_remaining
+string current_state
+

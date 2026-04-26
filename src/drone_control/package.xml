@@ -3,7 +3,7 @@
 <package format="3">
   <name>drone_control</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Paquete del proyecto final para el control de un dron</description>
   <maintainer email="pablo.gomez.sanchezco@gmail.com">pablo</maintainer>
   <license>Apache-2.0</license>
 
@@ -13,11 +13,19 @@
   <depend>tf2_ros</depend>
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
+  <depend>rclcpp_action</depend>
+
+  <build_depend>rosidl_default_generators</build_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
   <export>
     <build_type>ament_cmake</build_type>
   </export>
+
+
 </package>
