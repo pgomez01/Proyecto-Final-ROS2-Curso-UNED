@@ -16,15 +16,22 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/Navigate.action"
 )
+#Instalar base node
 add_executable(base_node src/base_node.cpp)
-
 ament_target_dependencies(base_node rclcpp tf2_ros geometry_msgs rclcpp_action)
 
-rosidl_target_interfaces(base_node
-  ${PROJECT_NAME} "rosidl_typesupport_cpp")
+#Instalar controller node
+add_executable(controller_node src/controller_node.cpp)
+ament_target_dependencies(controller_node rclcpp rclcpp_action)
+
+rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
+
+target_link_libraries(base_node "${cpp_typesupport_target}")
+target_link_libraries(controller_node "${cpp_typesupport_target}")
 
 install(TARGETS
   base_node
+  controller_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

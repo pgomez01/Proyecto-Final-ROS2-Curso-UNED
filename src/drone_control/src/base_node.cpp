@@ -19,7 +19,7 @@ public:
   using Navigate = drone_control::action::Navigate;
   using GoalHandleNavigate = rclcpp_action::ServerGoalHandle<Navigate>;
 
-  DroneBaseNode() : Node("base_node"), current_x_(0.0), current_y_(0.0) {
+  DroneBaseNode() : Node("base_node"), current_x_(0.0), current_y_(0.0), current_z_(0.0) {
     // Inicializar el publicador de transformaciones
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
     
@@ -39,8 +39,8 @@ public:
 
 private:
   //---Variables de estado---
-  double current_x_, current_y_;
-  double target_x_, target_y_;
+  double current_x_, current_y_, current_z_;
+  double target_x_, target_y_, target_z_;
   bool is_navigating_ = false;
 
   rclcpp_action::Server<Navigate>::SharedPtr action_server_;
@@ -78,6 +78,7 @@ private:
 
     target_x_ = goal->target_x;
     target_y_ = goal->target_y;
+    target_z_ = goal->target_z;
     is_navigating_ = true;
 
     rclcpp::Rate loop_rate(10); //10Hz
@@ -95,7 +96,8 @@ private:
       //Matematicas básicas de trayectoria hacia el objetivo
       double dx = target_x_ - current_x_;
       double dy = target_y_ - current_y_;
-      double distance = std::sqrt(dx*dx + dy*dy);
+      double dz = target_z_ - current_z_;
+      double distance = std::sqrt(dx*dx + dy*dy+ dz*dz);
 
       //Comprobación para saber si hemos llegado
       if(distance < 0.1){
@@ -105,6 +107,7 @@ private:
       //Mover el dron poco a poco hacia el destino (0.1m por ciclo)
       current_x_ += (dx / distance)*0.1;
       current_y_ += (dy / distance)*0.1;
+      current_z_ += (dz/ distance)*0.1;
 
       //Publicar feedback
       feedback->distance_remaining = distance;
@@ -134,7 +137,7 @@ private:
 
     t.transform.translation.x = current_x_;
     t.transform.translation.y = current_y_;
-    t.transform.translation.z = 1.0;
+    t.transform.translation.z = current_z_;
 
     tf2::Quaternion q;
     q.setRPY(0,0,0);
