@@ -10,6 +10,8 @@
 #include "tf2/LinearMath/Quaternion.h"
 #include "rclcpp_action/rclcpp_action.hpp" 
 #include "drone_control/action/navigate.hpp"
+#include "std_msgs/msg/bool.hpp"
+#include "std_msgs/msg/string.hpp"
 
 using namespace std::chrono_literals;
 
@@ -22,6 +24,14 @@ public:
   DroneBaseNode() : Node("base_node"), current_x_(0.0), current_y_(0.0), current_z_(0.0) {
     // Inicializar el publicador de transformaciones
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+
+    //Inicializar el publicador de telemetría a 1Hz
+    telemetry_pub_ = this->create_publisher<std_msgs::msg::String>("telemetry", 10);
+    telemetry_timer_= this->create_wall_timer(1000ms, std::bind(&DroneBaseNode::publish_telemetry,this));
+    
+    //Inicializar el subscriptor
+    stop_sub_= this->create_subscription<std_msgs::msg::Bool>(
+      "emergency_stop", 10, std::bind(&DroneBaseNode::stop_callback, this, std::placeholders::_1));
     
     // Timer para mover el dron a 10Hz
     timer_ = this->create_wall_timer(100ms, std::bind(&DroneBaseNode::broadcast_tf, this));
@@ -42,8 +52,12 @@ private:
   double current_x_, current_y_, current_z_;
   double target_x_, target_y_, target_z_;
   bool is_navigating_ = false;
+  bool emergency_stop_active_ = false;
 
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr telemetry_pub_;
+  rclcpp::TimerBase::SharedPtr telemetry_timer_;
   rclcpp_action::Server<Navigate>::SharedPtr action_server_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr stop_sub_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   rclcpp::TimerBase::SharedPtr timer_;
 
@@ -63,7 +77,24 @@ private:
     (void)goal_handle;
     return rclcpp_action::CancelResponse::ACCEPT;
   }
+  void publish_telemetry(){
+    auto msg = std_msgs::msg::String();
+    std::string estado = "EN ESPERA (IDLE)";
 
+    //Determinamos el estado actual del dron
+    if (emergency_stop_active_){
+      estado= "PARADA DE EMERGENCIA ACTIVA";
+    } else if (is_navigating_){
+      estado = "VOLANDO EN MISIÓN";
+    }
+
+    //Formateamos el texto con la altitud real (eje Z)
+    char buffer[100];
+    snprintf(buffer, sizeof(buffer), "Altitud: %.2f m | Modo de vuelo: %s", current_z_, estado.c_str());
+    msg.data = buffer;
+
+    telemetry_pub_->publish(msg);
+  }
   void handle_accepted(const std::shared_ptr<GoalHandleNavigate> goal_handle) {
     // Usamos una función lambda o bind, pero asegurándonos de que la firma sea compatible
     std::thread{std::bind(&DroneBaseNode::execute_navigation, this, std::placeholders::_1), goal_handle}.detach();
@@ -91,6 +122,14 @@ private:
         goal_handle->canceled(result);
         is_navigating_ = false;
         return; 
+      }
+      //Comprobar parada de emergencia
+      if( emergency_stop_active_){
+        result->success = false;
+        result -> message = "Vuelo abortado por Obstáculo Crítico";
+        goal_handle->abort(result);
+        is_navigating_ = false;
+        return;
       }
 
       //Matematicas básicas de trayectoria hacia el objetivo
@@ -147,6 +186,16 @@ private:
     t.transform.rotation.w = q.w();
 
     tf_broadcaster_->sendTransform(t);
+  }
+  //Callback que se activa al recibir un mensaje
+  void stop_callback(const std_msgs::msg::Bool::SharedPtr msg){
+    if (msg->data){
+      emergency_stop_active_= true;
+      RCLCPP_WARN(this->get_logger(), "¡Parada de emergencia activada!");
+    } else{
+      emergency_stop_active_ = false;
+      RCLCPP_INFO(this->get_logger(), "Sistema de seguridad restablecido");
+    }
   }
 
 };

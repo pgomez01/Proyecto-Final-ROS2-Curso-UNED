@@ -20,7 +20,13 @@ def generate_launch_description():
             executable='controller_node',
             name='drone_controller'
         ),
+        # Nodo de Seguridad
+        Node(
+            package='drone_control',
+            executable = 'security_node',
+            name='drone_security'
 
+        ),
         # TF Estática: Sensor LIDAR a 10cm sobre el dron [cite: 27]
         # Argumentos: x y z yaw pitch roll frame_id child_frame_id
         Node(

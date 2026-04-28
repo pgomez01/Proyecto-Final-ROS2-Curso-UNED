@@ -7,6 +7,7 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "drone_control/action/navigate.hpp"
 
+
 using namespace std::chrono_literals;
 
 struct Waypoints {
