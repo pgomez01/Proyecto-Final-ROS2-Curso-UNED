@@ -2,20 +2,20 @@
 
 Este proyecto consiste en el desarrollo de un sistema de control de vuelo en **ROS2** (C++) que permite a un dron ejecutar maniobras de navegación hacia puntos de destino mediante servidores de acción, integrando un sistema reactivo de evasión de obstáculos basado en datos de sensores LIDAR.
 
-El proyecto ha sido desarrollado como parte del curso de ROS de la UNED [cite: 5, 7].
+El proyecto ha sido desarrollado como parte del curso de ROS de la UNED.
 
 ## Características Principales
 
-- **Arquitectura Basada en Acciones**: Implementación de un Servidor de Acción para manejar trayectorias de vuelo y proporcionar retroalimentación en tiempo real [cite: 12, 18, 23].
-- **Evasión de Obstáculos**: Lógica reactiva que analiza lecturas LIDAR en el cono frontal para detectar distancias críticas y ejecutar maniobras de seguridad [cite: 14, 30, 31].
-- **Gestión de Transformaciones (TFs)**: Uso de TFs dinámicas para la posición del dron (`odom` -> `base_link`) y TFs estáticas para el montaje del sensor (`base_link` -> `lidar_link`) [cite: 25, 26, 27].
-- **Simulación**: Validación inicial en **RViz2** y simulación final en **Gazebo** [cite: 35, 36].
+- **Arquitectura Basada en Acciones**: Implementación de un Servidor de Acción para manejar trayectorias de vuelo y proporcionar retroalimentación en tiempo real.
+- **Evasión de Obstáculos**: Lógica reactiva que analiza lecturas LIDAR en el cono frontal para detectar distancias críticas y ejecutar maniobras de seguridad.
+- **Gestión de Transformaciones (TFs)**: Uso de TFs dinámicas para la posición del dron (`odom` -> `base_link`) y TFs estáticas para el montaje del sensor (`base_link` -> `lidar_link`).
+- **Simulación**: Validación inicial en **RViz2** y simulación final en **Gazebo**.
 
 ## Estructura del Paquete
 
-- `base_node`: Nodo servidor de la acción que calcula el movimiento y publica las TFs dinámicas [cite: 18].
-- `controlador_node`: Cliente de la acción que envía los puntos de destino [cite: 17].
-- `seguridad_node`: Procesa los datos del LIDAR y dicta las maniobras de evasión [cite: 19].
+- `base_node`: Nodo servidor de la acción que calcula el movimiento y publica las TFs dinámicas.
+- `controlador_node`: Cliente de la acción que envía los puntos de destino.
+- `seguridad_node`: Procesa los datos del LIDAR y dicta las maniobras de evasión.
 
 ## Requisitos e Instalación
 
@@ -46,7 +46,7 @@ ros2 launch drone_control drone_launch.py
 ```
 
 ## Autor
-- **Pablo Gómez Sánchez** [cite: 6]
+- **Pablo Gómez Sánchez**
 
 ## Licencia
 Este proyecto está licenciado bajo la Licencia Apache 2.0. Consulta el archivo `LICENSE` para más detalles.
