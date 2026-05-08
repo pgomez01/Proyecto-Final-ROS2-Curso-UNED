@@ -25,11 +25,15 @@ public:
     // 1. Crear el cliente de la acción
     client_ptr_ = rclcpp_action::create_client<Navigate>(this, "navigate");
 
+
     // 2. Definir la lista de misiones (X, Y)
     waypoints_ = {
-      {5.0, 5.0, 2.0},   // Waypoint 1: Esquina superior
-      {5.0, -5.0, 5.0},  // Waypoint 2: Esquina inferior
-      {0.0, 0.0, 0.0}    // Waypoint 3: Volver a base (odom)
+      {0.0, 0.0, 5.0},   // Waypoint 1: Esquina superior 
+      {0.0, 0.0, 0.0},
+      {5.0, 0.0, 0.0},
+      {0.0, 0.0, 0.0},
+      {0.0, 5.0, 0.0},
+      {0.0, 0.0, 0.0}
     };
 
     // 3. Usamos un temporizador de 2 segundos para dar tiempo a que el dron 
@@ -101,7 +105,11 @@ private:
     GoalHandleNavigate::SharedPtr,
     const std::shared_ptr<const Navigate::Feedback> feedback)
   {
-    RCLCPP_INFO(this->get_logger(), "Distancia a objetivo: %.2f m", feedback->distance_remaining);
+    RCLCPP_INFO_THROTTLE
+    (this->get_logger(),
+    *this->get_clock(),
+    1000,
+    "Distancia a objetivo: %.2f m", feedback->distance_remaining);
   }
 
   // CALLBACK 3: El dron ha llegado al destino (Result)

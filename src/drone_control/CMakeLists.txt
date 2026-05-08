@@ -12,21 +12,22 @@ find_package(tf2_ros REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(nav_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/Navigate.action"
 )
 #Instalar base node
 add_executable(base_node src/base_node.cpp)
-ament_target_dependencies(base_node rclcpp tf2_ros geometry_msgs rclcpp_action std_msgs) 
+ament_target_dependencies(base_node rclcpp tf2_ros geometry_msgs rclcpp_action std_msgs nav_msgs) 
 
 #Instalar controller node
 add_executable(controller_node src/controller_node.cpp)
-ament_target_dependencies(controller_node rclcpp rclcpp_action)
+ament_target_dependencies(controller_node rclcpp rclcpp_action std_msgs)
 
 #Instalar security node
 add_executable(security_node src/security_node.cpp)
-ament_target_dependencies(security_node rclcpp sensor_msgs std_msgs)
+ament_target_dependencies(security_node rclcpp sensor_msgs std_msgs )
 
 rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
 
@@ -41,7 +42,7 @@ install(TARGETS
 )
 
 #Instalar carpeta Launch
-install(DIRECTORY launch rviz
+install(DIRECTORY launch rviz urdf worlds
   DESTINATION share/${PROJECT_NAME}
 )
 if(BUILD_TESTING)

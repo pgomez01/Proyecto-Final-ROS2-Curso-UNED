@@ -12,6 +12,8 @@
 #include "drone_control/action/navigate.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "geometry_msgs/msg/twist.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 
 using namespace std::chrono_literals;
 
@@ -29,10 +31,23 @@ public:
     telemetry_pub_ = this->create_publisher<std_msgs::msg::String>("telemetry", 10);
     telemetry_timer_= this->create_wall_timer(1000ms, std::bind(&DroneBaseNode::publish_telemetry,this));
     
+    cmd_vel_pub_=this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+    odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("/odom", 10, std::bind(&DroneBaseNode::odom_callback, this, std::placeholders::_1));
     //Inicializar el subscriptor
     stop_sub_= this->create_subscription<std_msgs::msg::Bool>(
       "emergency_stop", 10, std::bind(&DroneBaseNode::stop_callback, this, std::placeholders::_1));
-    
+
+    pause_sub_ = this->create_subscription<std_msgs::msg::Bool>(
+      "/pause_mission", 10,
+      [this](const std_msgs::msg::Bool::SharedPtr msg){
+        if(msg->data && !is_paused_){
+          RCLCPP_ERROR(this->get_logger(), "VUELO PAUSADO");
+        }else if(!msg->data && is_paused_){
+          RCLCPP_INFO(this->get_logger(), "VUELO REANUDADO, PAUSA DESACTIVADA");
+        }
+        is_paused_=msg->data;
+      }
+    );
     // Timer para mover el dron a 10Hz
     timer_ = this->create_wall_timer(100ms, std::bind(&DroneBaseNode::broadcast_tf, this));
     
@@ -53,6 +68,8 @@ private:
   double target_x_, target_y_, target_z_;
   bool is_navigating_ = false;
   bool emergency_stop_active_ = false;
+  bool emergency_= false;
+  bool is_paused_=false;
 
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr telemetry_pub_;
   rclcpp::TimerBase::SharedPtr telemetry_timer_;
@@ -60,6 +77,9 @@ private:
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr stop_sub_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr pause_sub_;
 
   rclcpp_action::GoalResponse handle_goal(
     const rclcpp_action::GoalUUID & uuid,
@@ -114,39 +134,74 @@ private:
 
     rclcpp::Rate loop_rate(10); //10Hz
 
+    bool notified_obstacle = false; //flag de obstaculo detectado
+    bool pause=false; //flag de pausa de vuelo
+
     while(rclcpp::ok()){
       //Si cancela en medio del vuelo
       if (goal_handle->is_canceling()){
+
+        geometry_msgs::msg::Twist stop_msg;
+        cmd_vel_pub_->publish(stop_msg);
+
         result->success = false;
         result->message = "Cancelado el vuelo";
         goal_handle->canceled(result);
         is_navigating_ = false;
         return; 
       }
-      //Comprobar parada de emergencia
-      if( emergency_stop_active_){
-        result->success = false;
-        result -> message = "Vuelo abortado por Obstáculo Crítico";
-        goal_handle->abort(result);
-        is_navigating_ = false;
-        return;
-      }
-
       //Matematicas básicas de trayectoria hacia el objetivo
       double dx = target_x_ - current_x_;
       double dy = target_y_ - current_y_;
       double dz = target_z_ - current_z_;
       double distance = std::sqrt(dx*dx + dy*dy+ dz*dz);
 
+      //Comprobar parada de emergencia
+      if( emergency_stop_active_){
+
+        geometry_msgs::msg::Twist stop_msg;
+        cmd_vel_pub_->publish(stop_msg);
+
+        if(notified_obstacle == false){
+          feedback->distance_remaining = distance;
+          feedback->current_state = "Esperando: Obstáculo bloqueando el camino";
+          goal_handle->publish_feedback(feedback);
+          notified_obstacle = true;
+        }
+        loop_rate.sleep();
+        continue;
+      }
+      //Pausar vuelo
+      if(is_paused_){
+        geometry_msgs::msg::Twist stop_msg;
+        cmd_vel_pub_->publish(stop_msg);
+        if(pause == false){
+          feedback->distance_remaining = distance;
+          feedback->current_state ="PAUSADO - Esperando orden de reanudar";
+          goal_handle->publish_feedback(feedback);
+          pause = true;
+        } 
+        loop_rate.sleep();
+
+        continue;
+      }
+      notified_obstacle = false;
       //Comprobación para saber si hemos llegado
       if(distance < 0.1){
         break;
       }
 
       //Mover el dron poco a poco hacia el destino (0.1m por ciclo)
-      current_x_ += (dx / distance)*0.1;
+      /*current_x_ += (dx / distance)*0.1;
       current_y_ += (dy / distance)*0.1;
-      current_z_ += (dz/ distance)*0.1;
+      current_z_ += (dz/ distance)*0.1;*/
+      
+      geometry_msgs::msg::Twist cmd_msg;
+      cmd_msg.linear.x = (dx/distance)*0.5;
+      cmd_msg.linear.y = (dy/distance)*0.5;
+      cmd_msg.linear.z = (dz/distance)*0.5;
+      cmd_vel_pub_->publish(cmd_msg);
+
 
       //Publicar feedback
       feedback->distance_remaining = distance;
@@ -158,6 +213,10 @@ private:
     
     //Llegada exitosa
     if(rclcpp::ok()){
+      //Apagar Motores al llegar
+      geometry_msgs::msg::Twist stop_msg;
+      cmd_vel_pub_->publish(stop_msg);
+
       result->success = true;
       result->message = "Destino alcanzado";
       goal_handle->succeed(result);
@@ -191,11 +250,23 @@ private:
   void stop_callback(const std_msgs::msg::Bool::SharedPtr msg){
     if (msg->data){
       emergency_stop_active_= true;
-      RCLCPP_WARN(this->get_logger(), "¡Parada de emergencia activada!");
+      if (emergency_==false){
+        RCLCPP_WARN(this->get_logger(), "¡Parada de emergencia activada!");
+        emergency_= true;
+      }
     } else{
       emergency_stop_active_ = false;
-      RCLCPP_INFO(this->get_logger(), "Sistema de seguridad restablecido");
+      if (emergency_==true){
+        RCLCPP_INFO(this->get_logger(), "Sistema de seguridad restablecido");
+        emergency_ = false;
+      }
+      
     }
+  }
+  void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg){
+    current_x_ = msg->pose.pose.position.x;
+    current_y_ = msg->pose.pose.position.y;
+    current_z_ = msg->pose.pose.position.z;
   }
 
 };

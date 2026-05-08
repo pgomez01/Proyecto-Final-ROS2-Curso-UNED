@@ -1,0 +1,122 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="drone">
+
+    <material name="blue">
+        <color rgba="0 0 0.8 1"/>
+    </material>
+    <material name="black">
+        <color rgba="0 0 0 1"/>
+    </material>
+
+    <link name="base_link">
+    </link>
+
+    <joint name="chassis_joint" type="fixed">
+        <parent link="base_link"/>
+        <child link="chassis"/>
+        <origin xyz="0 0 0"/>
+    </joint>
+
+    <link name="chassis">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <box size="0.4 0.4 0.1"/> </geometry>
+            <material name="blue"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <box size="0.4 0.4 0.1"/>
+            </geometry>
+        </collision>
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="1.5"/> <inertia ixx="0.02" ixy="0.0" ixz="0.0" iyy="0.02" iyz="0.0" izz="0.04"/>
+        </inertial>
+    </link>
+
+    <joint name="lidar_joint" type="fixed">
+        <parent link="chassis"/>
+        <child link="lidar_link"/>
+        <origin xyz="0 0 0.075" rpy="0 0 0"/> </joint>
+
+    <link name="lidar_link">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <cylinder radius="0.05" length="0.05"/> </geometry>
+            <material name="black"/>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <cylinder radius="0.05" length="0.05"/>
+            </geometry>
+        </collision>
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="0.2"/> <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
+        </inertial>
+    </link>
+
+    <gazebo>
+        <plugin filename="gz-sim-sensors-system" name ="gz::sim::systems::Sensors">
+            <render_engine>ogre2</render_engine>
+        </plugin> 
+    </gazebo>
+    <gazebo reference="base_link">
+        <gravity>false</gravity>
+    </gazebo>
+
+    <!-- ============================================== -->
+    <!-- PLUGIN DE GAZEBO: SENSOR LIDAR                 -->
+    <!-- ============================================== -->
+    <gazebo reference="lidar_link">
+        <sensor name="lidar" type="gpu_lidar">
+            <topic>/scan</topic>
+            <gz_frame_id>lidar_link</gz_frame_id> 
+            <update_rate>10</update_rate> <!-- Lee datos a 10 Hz -->
+            <ray>
+                <scan>
+                    <horizontal>
+                        <samples>360</samples> <!-- 360 rayos (1 por grado) -->
+                        <resolution>1.0</resolution>
+                        <min_angle>-3.14159</min_angle> <!-- Desde -180 grados -->
+                        <max_angle>3.14159</max_angle>  <!-- Hasta +180 grados -->
+                    </horizontal>
+                </scan>
+                <range>
+                    <min>0.15</min> <!-- Distancia mínima (15 cm) -->
+                    <max>10.0</max> <!-- Distancia máxima (10 metros) -->
+                    <resolution>0.01</resolution>
+                </range>
+                <noise>
+                    <type>gaussian</type>
+                    <mean>0.0</mean>
+                    <stddev>0.01</stddev> <!-- Pequeño ruido para simular la imperfección del mundo real -->
+                </noise>
+            </ray>
+            <always_on>true</always_on><!-- poner a false para no ver los rayos-->
+            <visualize>true</visualize>
+        </sensor>
+    </gazebo>
+    <!-- PLUGIN DE MOVIMIENTO PARA GAZEBO MODERNO (Jazzy / Harmonic) -->
+    <gazebo>
+        <!-- 1. El "Motor": Recibe el /cmd_vel y mueve la caja en 3D -->
+        <plugin filename="libgz-sim-velocity-control-system.so" name="gz::sim::systems::VelocityControl">
+            <topic>/cmd_vel</topic>
+        </plugin>
+        <!-- 2. El "GPS": Publica la Odometría para saber dónde está el dron -->
+        <plugin filename="libgz-sim-odometry-publisher-system.so" name="gz::sim::systems::OdometryPublisher">
+            <odom_frame>odom</odom_frame>
+            <robot_base_frame>base_link</robot_base_frame>
+            <odom_publish_frequency>10</odom_publish_frequency>
+            
+            <odom_topic>/odom</odom_topic>
+            <dimensions>3</dimensions> 
+        </plugin>
+
+    </gazebo>
+
+    </robot>
