@@ -19,7 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 )
 #Instalar base node
 add_executable(base_node src/base_node.cpp)
-ament_target_dependencies(base_node rclcpp tf2_ros geometry_msgs rclcpp_action std_msgs nav_msgs) 
+ament_target_dependencies(base_node rclcpp tf2_ros geometry_msgs rclcpp_action std_msgs nav_msgs sensor_msgs) 
 
 #Instalar controller node
 add_executable(controller_node src/controller_node.cpp)

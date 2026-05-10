@@ -34,7 +34,7 @@ private:
       }
       
       // Si algún rayo choca a menos de 1.5 metros...
-      if (range < 1.5 && range > msg->range_min) {
+      if (range < 0.3 && range > msg->range_min) {
         danger = true;
         break; // No hace falta mirar más, ¡ya hay peligro!
       }

@@ -14,6 +14,8 @@
 #include "std_msgs/msg/string.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include "sensor_msgs/msg/laser_scan.hpp"
+#include "tf2/LinearMath/Matrix3x3.hpp"
 
 using namespace std::chrono_literals;
 
@@ -48,6 +50,9 @@ public:
         is_paused_=msg->data;
       }
     );
+    laser_sub_ = this ->create_subscription<sensor_msgs::msg::LaserScan>(
+      "/scan",10,std::bind(&DroneBaseNode::laser_callback,this, std::placeholders::_1)
+    );
     // Timer para mover el dron a 10Hz
     timer_ = this->create_wall_timer(100ms, std::bind(&DroneBaseNode::broadcast_tf, this));
     
@@ -70,6 +75,13 @@ private:
   bool emergency_stop_active_ = false;
   bool emergency_= false;
   bool is_paused_=false;
+  float dist_frente_ = 10.0;
+  float dist_izq_ = 10.0;
+  float dist_der_ = 10.0;
+  float dist_atras_= 10.0;
+  float dist_diag_der_ = 10.0;
+  float dist_diag_izq_ = 10.0;
+  double current_yaw_ = 0.0;
 
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr telemetry_pub_;
   rclcpp::TimerBase::SharedPtr telemetry_timer_;
@@ -80,6 +92,7 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr pause_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_sub_;
 
   rclcpp_action::GoalResponse handle_goal(
     const rclcpp_action::GoalUUID & uuid,
@@ -137,6 +150,11 @@ private:
     bool notified_obstacle = false; //flag de obstaculo detectado
     bool pause=false; //flag de pausa de vuelo
 
+    enum EstadoVuelo { VOLANDO, ROTANDO_ESQUIVA, RODEANDO_OBSTACULO};
+    EstadoVuelo estado_actual = VOLANDO;
+    int direccion_esquiva = 1; //1= IZQUIERDA, -1 = DERECHA
+    int ciclos_rodeo = 0;
+
     while(rclcpp::ok()){
       //Si cancela en medio del vuelo
       if (goal_handle->is_canceling()){
@@ -190,24 +208,101 @@ private:
       if(distance < 0.1){
         break;
       }
-
-      //Mover el dron poco a poco hacia el destino (0.1m por ciclo)
-      /*current_x_ += (dx / distance)*0.1;
-      current_y_ += (dy / distance)*0.1;
-      current_z_ += (dz/ distance)*0.1;*/
       
+      // Transiciones de estado
+      if (estado_actual == VOLANDO && (dist_frente_ < 1.5 || dist_diag_izq_ <1.3 || dist_diag_der_ < 1.3)){
+        estado_actual = ROTANDO_ESQUIVA;
+        // Decisión táctica con chivato en consola
+        if ((dist_izq_ + dist_diag_izq_) > (dist_der_ + dist_diag_der_)) {
+          direccion_esquiva = 1;
+          RCLCPP_WARN(this->get_logger(), "OBSTÁCULO: Frente bloqueado. Hueco a la IZQ (%.2fm > %.2fm). Girando a la izquierda...", dist_izq_, dist_der_);
+        } else {
+          direccion_esquiva = -1;
+          RCLCPP_WARN(this->get_logger(), "OBSTÁCULO: Frente bloqueado. Hueco a la DER (%.2fm > %.2fm). Girando a la derecha...", dist_der_, dist_izq_);
+        }
+      }
+      //Via libre
+      else if (estado_actual == ROTANDO_ESQUIVA && dist_frente_ > 4.0){
+        estado_actual = RODEANDO_OBSTACULO;
+        ciclos_rodeo = 0;
+        RCLCPP_INFO(this->get_logger(), "¡Via libre frontal!");
+      }
+
+      else if(estado_actual == RODEANDO_OBSTACULO){
+        ciclos_rodeo++;
+        bool costado_libre = false;
+        if (direccion_esquiva == 1) {
+          costado_libre = (dist_der_ > 3.5 && dist_diag_der_ > 3.5); // ¿La derecha está libre?
+        } else {
+          costado_libre = (dist_izq_ > 5.0 && dist_diag_izq_ > 3.5); // ¿La izquierda está libre?
+        }
+        // Seguridad extra: Si aparece un nuevo obstáculo imprevisto al frente
+        if (dist_frente_ < 1.5 || dist_diag_der_ < 1.0 || dist_diag_izq_ < 1.0) {
+          estado_actual = ROTANDO_ESQUIVA;
+        }
+        // Si el costado ya está despejado, significa que dejamos la caja atrás
+        else if (costado_libre && dist_atras_ > 2.0 && ciclos_rodeo >35) {
+            estado_actual = VOLANDO;
+            RCLCPP_INFO(this->get_logger(), "¡Obstáculo rebasado con éxito! Buscando rumbo a la meta...");
+        }
+      }
+      
+
+      //Acciones de estado
       geometry_msgs::msg::Twist cmd_msg;
-      cmd_msg.linear.x = (dx/distance)*0.5;
-      cmd_msg.linear.y = (dy/distance)*0.5;
-      cmd_msg.linear.z = (dz/distance)*0.5;
+      
+      if (estado_actual == ROTANDO_ESQUIVA){
+        cmd_msg.linear.x=0.0;
+        cmd_msg.linear.y=0.0;
+        cmd_msg.linear.z=0.0;
+        cmd_msg.angular.z=0.6 * direccion_esquiva;
+
+        feedback -> current_state = "ROTANDO (Buscando salida)";
+      }
+      else if(estado_actual == RODEANDO_OBSTACULO){
+        cmd_msg.linear.x = 0.5;
+        cmd_msg.linear.y = 0.0;
+        cmd_msg.linear.z = (dz/distance)*0.5;
+        cmd_msg.angular.z = 0.0;
+
+        feedback->current_state = "Rodeando Obstaculo";
+
+      }
+      else{
+        //Estado VOLANDO
+        double dist_horizontal = std::sqrt(dx*dx +dy*dy);
+
+        //Escudo vertical
+        if (dist_horizontal < 0.1){
+          cmd_msg.linear.x = 0.0;
+          cmd_msg.linear.y = 0.0;
+          cmd_msg.angular.z = 0.0;
+        }
+        else
+        {
+          double angle_to_goal = std::atan2(dy,dx);
+          double angle_error = angle_to_goal - current_yaw_;
+
+          while(angle_error > M_PI) angle_error -= 2* M_PI;
+          while(angle_error < -M_PI) angle_error += 2* M_PI;
+            
+          if (std::abs(angle_error) > 0.26){
+            cmd_msg.linear.x = 0.0;
+            cmd_msg.linear.y = 0.0;
+            cmd_msg.angular.z = 0.4*(angle_error > 0 ? 1 : -1);
+          }else{
+            cmd_msg.linear.x = 0.5;
+            cmd_msg.linear.y = 0.0;
+            cmd_msg.angular.z = 0.2*angle_error;
+          }
+      }
+        cmd_msg.linear.z = (dz/distance)*0.5;
+        feedback->current_state = "Volando hacia destino";
+      }
       cmd_vel_pub_->publish(cmd_msg);
 
-
-      //Publicar feedback
       feedback->distance_remaining = distance;
-      feedback->current_state = "Volando hacia el destino";
       goal_handle->publish_feedback(feedback);
-
       loop_rate.sleep();
     }
     
@@ -238,7 +333,7 @@ private:
     t.transform.translation.z = current_z_;
 
     tf2::Quaternion q;
-    q.setRPY(0,0,0);
+    q.setRPY(0,0,current_yaw_);
     t.transform.rotation.x = q.x();
     t.transform.rotation.y = q.y();
     t.transform.rotation.z = q.z();
@@ -267,6 +362,47 @@ private:
     current_x_ = msg->pose.pose.position.x;
     current_y_ = msg->pose.pose.position.y;
     current_z_ = msg->pose.pose.position.z;
+
+    tf2::Quaternion q(
+      msg->pose.pose.orientation.x,
+      msg->pose.pose.orientation.y,
+      msg->pose.pose.orientation.z,
+      msg->pose.pose.orientation.w
+    );
+    tf2::Matrix3x3 m(q);
+    double roll, pitch, yaw;
+    m.getRPY(roll, pitch, yaw);
+
+    current_yaw_ = yaw;
+  }
+  void laser_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg){
+    if(msg->ranges.empty())return;
+    auto get_min_distance = [&](int start_idx, int end_idx){
+      float min_val = 10.0;
+      for(int i = start_idx; i < end_idx; i++){
+        float r = msg->ranges[i];
+        //Filtro de errores de Gazebo (inf o NaN)
+        if(!std::isinf(r) && !std::isnan(r) && r > msg->range_min && r < msg->range_max){
+          if (r < min_val){
+            min_val = r;
+          }
+        }
+      }
+      return min_val;
+    };
+    dist_der_= get_min_distance(45, 110);
+    dist_diag_der_= get_min_distance(110,160);
+    dist_frente_=get_min_distance(160,200);
+    dist_diag_izq_= get_min_distance(200,250);
+    dist_izq_=get_min_distance(250, 315);
+    float atras_der= get_min_distance(0,45);
+    float atras_izq= get_min_distance(315,360);
+    dist_atras_ = std::min(atras_der,atras_izq);
+
+    RCLCPP_INFO_THROTTLE(this->get_logger(),*this->get_clock(), 1000,
+  "LASER -> Izq: %.2fm | Frente: %2fm | Der: %2fm | DiagIzq: %2fm | DiagDer: %2fm | Atras: %2fm",
+   dist_izq_, dist_frente_, dist_der_, dist_diag_izq_, dist_diag_der_, dist_atras_);
+
   }
 
 };

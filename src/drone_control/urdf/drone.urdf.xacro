@@ -4,6 +4,9 @@
     <material name="blue">
         <color rgba="0 0 0.8 1"/>
     </material>
+    <material name="red">
+        <color rgba="0.8 0 0 1"/>
+    </material>
     <material name="black">
         <color rgba="0 0 0 1"/>
     </material>
@@ -36,10 +39,27 @@
         </inertial>
     </link>
 
+    <joint name="nose_joint" type="fixed">
+        <parent link="chassis"/>
+        <child link="nose_link"/>
+        <origin xyz="0.2 0 0.0" rpy="0 0 0"/>
+    </joint>
+
+    <link name="nose_link">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <box size="0.1 0.1 0.05"/>
+            </geometry>
+            <material name = "red"/>
+        </visual>
+    </link>
+
     <joint name="lidar_joint" type="fixed">
         <parent link="chassis"/>
         <child link="lidar_link"/>
-        <origin xyz="0 0 0.075" rpy="0 0 0"/> </joint>
+        <origin xyz="0 0 0.075" rpy="0 0 0"/> 
+    </joint>
 
     <link name="lidar_link">
         <visual>
@@ -72,14 +92,15 @@
     <!-- ============================================== -->
     <!-- PLUGIN DE GAZEBO: SENSOR LIDAR                 -->
     <!-- ============================================== -->
-    <gazebo reference="lidar_link">
+    <gazebo reference="base_link">
         <sensor name="lidar" type="gpu_lidar">
+            <pose>0 0 0.075 0 0 0</pose>
             <topic>/scan</topic>
-            <gz_frame_id>lidar_link</gz_frame_id> 
+            <gz_frame_id>base_link</gz_frame_id> 
             <update_rate>10</update_rate> <!-- Lee datos a 10 Hz -->
             <ray>
                 <scan>
-                    <horizontal>
+                    <horizontal> 
                         <samples>360</samples> <!-- 360 rayos (1 por grado) -->
                         <resolution>1.0</resolution>
                         <min_angle>-3.14159</min_angle> <!-- Desde -180 grados -->
@@ -98,7 +119,7 @@
                 </noise>
             </ray>
             <always_on>true</always_on><!-- poner a false para no ver los rayos-->
-            <visualize>true</visualize>
+            <visualize>false</visualize>
         </sensor>
     </gazebo>
     <!-- PLUGIN DE MOVIMIENTO PARA GAZEBO MODERNO (Jazzy / Harmonic) -->
@@ -106,6 +127,7 @@
         <!-- 1. El "Motor": Recibe el /cmd_vel y mueve la caja en 3D -->
         <plugin filename="libgz-sim-velocity-control-system.so" name="gz::sim::systems::VelocityControl">
             <topic>/cmd_vel</topic>
+            <use_world_frame>false</use_world_frame>
         </plugin>
         <!-- 2. El "GPS": Publica la Odometría para saber dónde está el dron -->
         <plugin filename="libgz-sim-odometry-publisher-system.so" name="gz::sim::systems::OdometryPublisher">
