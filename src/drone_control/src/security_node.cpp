@@ -15,7 +15,7 @@ public:
     sub_scan_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
       "/scan", rclcpp::SensorDataQoS(), std::bind(&SeguridadNode::scan_callback, this, std::placeholders::_1));
       
-    RCLCPP_INFO(this->get_logger(), "Sistema de seguridad LIDAR activado. Rango seguro: 1.5m");
+    RCLCPP_INFO(this->get_logger(), "Sistema de seguridad LIDAR activado. Rango seguro: 0.5m");
   }
 
 private:

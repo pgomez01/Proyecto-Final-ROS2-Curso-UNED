@@ -81,6 +81,8 @@ private:
   float dist_atras_= 10.0;
   float dist_diag_der_ = 10.0;
   float dist_diag_izq_ = 10.0;
+  float dist_puro_der_ = 10.0;
+  float dist_puro_izq_ = 10.0;
   double current_yaw_ = 0.0;
 
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr telemetry_pub_;
@@ -150,10 +152,11 @@ private:
     bool notified_obstacle = false; //flag de obstaculo detectado
     bool pause=false; //flag de pausa de vuelo
 
-    enum EstadoVuelo { VOLANDO, ROTANDO_ESQUIVA, RODEANDO_OBSTACULO};
+    enum EstadoVuelo { VOLANDO, ROTANDO_ESQUIVA, RODEANDO_OBSTACULO, ROTANDO_ESQUINA, AVANZANDO_TRAS_ESQUINA};
     EstadoVuelo estado_actual = VOLANDO;
     int direccion_esquiva = 1; //1= IZQUIERDA, -1 = DERECHA
     int ciclos_rodeo = 0;
+    double yaw_objetivo_esquiva = 0.0;
 
     while(rclcpp::ok()){
       //Si cancela en medio del vuelo
@@ -209,8 +212,11 @@ private:
         break;
       }
       
-      // Transiciones de estado
-      if (estado_actual == VOLANDO && (dist_frente_ < 1.5 || dist_diag_izq_ <1.3 || dist_diag_der_ < 1.3)){
+      // ---1ª Bloque----------------
+      // ---Transiciones de estado---
+      //-----------------------------
+      // 1er ESTADO: Detecta obstaculo de frente -> Inicia esquiva
+      if (estado_actual == VOLANDO && (dist_frente_ < 1.3 || dist_diag_izq_ <1.3 || dist_diag_der_ < 1.3)){
         estado_actual = ROTANDO_ESQUIVA;
         // Decisión táctica con chivato en consola
         if ((dist_izq_ + dist_diag_izq_) > (dist_der_ + dist_diag_der_)) {
@@ -220,56 +226,151 @@ private:
           direccion_esquiva = -1;
           RCLCPP_WARN(this->get_logger(), "OBSTÁCULO: Frente bloqueado. Hueco a la DER (%.2fm > %.2fm). Girando a la derecha...", dist_der_, dist_izq_);
         }
-      }
-      //Via libre
-      else if (estado_actual == ROTANDO_ESQUIVA && dist_frente_ > 4.0){
-        estado_actual = RODEANDO_OBSTACULO;
-        ciclos_rodeo = 0;
-        RCLCPP_INFO(this->get_logger(), "¡Via libre frontal!");
-      }
 
+        yaw_objetivo_esquiva = current_yaw_ + (M_PI / 2 * direccion_esquiva);
+
+        while (yaw_objetivo_esquiva > M_PI) yaw_objetivo_esquiva -= 2*M_PI;
+        while (yaw_objetivo_esquiva < -M_PI) yaw_objetivo_esquiva += 2*M_PI;
+        
+        RCLCPP_WARN(this->get_logger(), "ESTADO:VOLANDO");
+
+        
+      }
+      // --- 2-. Transición: Fin del giro de 90º --- 
+      else if (estado_actual == ROTANDO_ESQUIVA ){
+        double error_angular = yaw_objetivo_esquiva - current_yaw_;
+        
+        while(error_angular>M_PI) error_angular -= 2 * M_PI;
+        while (error_angular<-M_PI) error_angular += 2*M_PI;
+        
+        if(std::abs(error_angular) < 0.1){
+          estado_actual = RODEANDO_OBSTACULO;
+          ciclos_rodeo = 0;
+          RCLCPP_INFO(this->get_logger(), "Estado: Rotando_ESQUIVA");
+        }
+      }
+      // --- 3. Transición: Fin del avance recto (Rodeamos la esquina)
       else if(estado_actual == RODEANDO_OBSTACULO){
         ciclos_rodeo++;
         bool costado_libre = false;
+
         if (direccion_esquiva == 1) {
           costado_libre = (dist_der_ > 3.5 && dist_diag_der_ > 3.5); // ¿La derecha está libre?
         } else {
-          costado_libre = (dist_izq_ > 5.0 && dist_diag_izq_ > 3.5); // ¿La izquierda está libre?
+          costado_libre = (dist_izq_ > 3.5 && dist_diag_izq_ > 3.5); // ¿La izquierda está libre?
         }
         // Seguridad extra: Si aparece un nuevo obstáculo imprevisto al frente
         if (dist_frente_ < 1.5 || dist_diag_der_ < 1.0 || dist_diag_izq_ < 1.0) {
           estado_actual = ROTANDO_ESQUIVA;
+          yaw_objetivo_esquiva = current_yaw_ + (M_PI / 2.0 * direccion_esquiva);
+          while (yaw_objetivo_esquiva > M_PI) yaw_objetivo_esquiva -= 2*M_PI;
+          while (yaw_objetivo_esquiva < -M_PI) yaw_objetivo_esquiva += 2*M_PI;
         }
         // Si el costado ya está despejado, significa que dejamos la caja atrás
-        else if (costado_libre && dist_atras_ > 2.0 && ciclos_rodeo >35) {
-            estado_actual = VOLANDO;
-            RCLCPP_INFO(this->get_logger(), "¡Obstáculo rebasado con éxito! Buscando rumbo a la meta...");
+        else if (costado_libre && dist_atras_ > 3.0 &&ciclos_rodeo >35) {
+            estado_actual = ROTANDO_ESQUINA;
+
+            //Giro hacia el lado del obstaculo para doblar la esquina.
+            //Si esquivamos a la izq (+1), ahora giramos hacia la derecha (-1)
+            yaw_objetivo_esquiva = current_yaw_ - (M_PI / 2.0 * direccion_esquiva);
+            while (yaw_objetivo_esquiva > M_PI) yaw_objetivo_esquiva -= 2* M_PI;
+            while (yaw_objetivo_esquiva < -M_PI) yaw_objetivo_esquiva += 2* M_PI;
+
+            RCLCPP_INFO(this->get_logger(), "ESTADO: RODEANDO_OBSTACULO");
         }
       }
-      
 
-      //Acciones de estado
+      //4to ESTADO: Fin del giro de la esquina
+      else if (estado_actual == ROTANDO_ESQUINA){
+        double error_angular = yaw_objetivo_esquiva - current_yaw_;
+        while (error_angular > M_PI) error_angular -= 2 * M_PI;
+        while (error_angular < -M_PI) error_angular += 2* M_PI;
+        
+        if (std::abs(error_angular) < 0.1){
+          estado_actual = AVANZANDO_TRAS_ESQUINA;
+          ciclos_rodeo = 0;
+          RCLCPP_INFO(this->get_logger(), "ESTADO: ROTANDO_ESQUINA");
+        }
+      }
+      //5to ESTADO: Fin de la "L" -> Retorno a la meta
+      else if (estado_actual == AVANZANDO_TRAS_ESQUINA){
+        ciclos_rodeo ++;
+        bool costado_libre = false;
+        
+        if (direccion_esquiva == 1)
+        {
+          costado_libre = (dist_der_ > 3.5 && dist_diag_der_ > 3.5);
+        }else{
+          costado_libre = (dist_izq_ > 3.5 && dist_diag_izq_ > 3.5);
+        }
+
+        if (dist_frente_ < 1.5 || dist_diag_der_ < 1.0 || dist_diag_izq_ < 1.0){
+          estado_actual = ROTANDO_ESQUIVA;
+          yaw_objetivo_esquiva = current_yaw_ + (M_PI / 2.0 * direccion_esquiva);
+          while (yaw_objetivo_esquiva > M_PI) yaw_objetivo_esquiva -= 2*M_PI;
+          while (yaw_objetivo_esquiva < -M_PI) yaw_objetivo_esquiva += 2*M_PI;
+          RCLCPP_WARN (this->get_logger(), "Obstaculo: Nuevo muro encontrando. Recalculando...");
+        }
+        else if (costado_libre && dist_atras_> 3.0 && ciclos_rodeo > 30){
+          estado_actual = VOLANDO;
+          RCLCPP_INFO (this-> get_logger(), "ESTADO: AVANZANDO_TRAS_ESQUINA");
+        }
+        
+      }
+      //---2ºBloque-------------
+      //---Acciones de estado---
+      //------------------------
+
       geometry_msgs::msg::Twist cmd_msg;
       
-      if (estado_actual == ROTANDO_ESQUIVA){
-        cmd_msg.linear.x=0.0;
-        cmd_msg.linear.y=0.0;
-        cmd_msg.linear.z=0.0;
-        cmd_msg.angular.z=0.6 * direccion_esquiva;
+      //Controladores para cualquier estado de rotación
+      if (estado_actual == ROTANDO_ESQUIVA || estado_actual == ROTANDO_ESQUINA){
 
-        feedback -> current_state = "ROTANDO (Buscando salida)";
+        double error_angular = yaw_objetivo_esquiva -current_yaw_;
+
+        while(error_angular > M_PI) error_angular -= 2*M_PI;
+        while(error_angular < -M_PI) error_angular += 2*M_PI;
+        cmd_msg.linear.x = 0.0;
+        cmd_msg.angular.z = 0.5 * (error_angular > 0 ? 1 : -1); 
+        feedback->current_state = (estado_actual == ROTANDO_ESQUIVA) ? "ROTANDO 90º (Esquiva)" : "ROTANDO 90º (Esquina en L)";
       }
-      else if(estado_actual == RODEANDO_OBSTACULO){
+
+      //Controladores para cualquier avance recto rodeando
+      else if(estado_actual == RODEANDO_OBSTACULO || estado_actual == AVANZANDO_TRAS_ESQUINA){
         cmd_msg.linear.x = 0.5;
-        cmd_msg.linear.y = 0.0;
         cmd_msg.linear.z = (dz/distance)*0.5;
-        cmd_msg.angular.z = 0.0;
 
-        feedback->current_state = "Rodeando Obstaculo";
+        //Controlador proporcional
 
+        double distancia_muro = 10.0;
+
+        if (direccion_esquiva == 1){
+          distancia_muro = dist_puro_der_;
+        }
+        else{
+          distancia_muro = dist_puro_izq_;
+        }
+
+        if (distancia_muro < 3.0){
+          double distancia_deseada = (estado_actual == RODEANDO_OBSTACULO) ? 1.5 : 10.0;
+          double error_distancia = distancia_deseada - distancia_muro;
+
+          //Kp = 0.4 Calculo de Corrección
+          double correccion = 0.4 * error_distancia * direccion_esquiva;
+
+          if (correccion > 0.4) correccion = 0.4;
+          if (correccion < -0.4) correccion = -0.4;
+
+          cmd_msg.angular.z = correccion;
+        }
+        else{
+          cmd_msg.angular.z = 0.0;
+        }
+        feedback->current_state = (estado_actual == RODEANDO_OBSTACULO) ? "RODEANDO (Trampa 1 de la L)" : "RODEANDO (Trampa 2 de la L)";
       }
+      
+      //Controladores de vuelo normal hacia el objetivo
       else{
-        //Estado VOLANDO
         double dist_horizontal = std::sqrt(dx*dx +dy*dy);
 
         //Escudo vertical
@@ -316,7 +417,7 @@ private:
       result->message = "Destino alcanzado";
       goal_handle->succeed(result);
       is_navigating_ = false;
-      RCLCPP_INFO(this->get_logger(), "¡Aterrizaje completado!");
+      
     }
   }
 
@@ -395,13 +496,15 @@ private:
     dist_frente_=get_min_distance(160,200);
     dist_diag_izq_= get_min_distance(200,250);
     dist_izq_=get_min_distance(250, 315);
+    dist_puro_der_ = get_min_distance (80,100);
+    dist_puro_izq_ = get_min_distance (260,280);
     float atras_der= get_min_distance(0,45);
     float atras_izq= get_min_distance(315,360);
     dist_atras_ = std::min(atras_der,atras_izq);
 
-    RCLCPP_INFO_THROTTLE(this->get_logger(),*this->get_clock(), 1000,
+    /*RCLCPP_INFO_THROTTLE(this->get_logger(),*this->get_clock(), 1000,
   "LASER -> Izq: %.2fm | Frente: %2fm | Der: %2fm | DiagIzq: %2fm | DiagDer: %2fm | Atras: %2fm",
-   dist_izq_, dist_frente_, dist_der_, dist_diag_izq_, dist_diag_der_, dist_atras_);
+   dist_izq_, dist_frente_, dist_der_, dist_diag_izq_, dist_diag_der_, dist_atras_);*/
 
   }
 

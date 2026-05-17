@@ -29,7 +29,8 @@ public:
     // 2. Definir la lista de misiones (X, Y)
     waypoints_ = {
       {0.0, 0.0, 5.0},   // Waypoint 1: Esquina superior 
-      {0.0, 5.0, 5.0}
+      {20.0, 10.0, 5.0},
+      {20.0, 10.0, 0.0}
     };
 
     // 3. Usamos un temporizador de 2 segundos para dar tiempo a que el dron 

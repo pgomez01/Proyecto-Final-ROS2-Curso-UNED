@@ -51,19 +51,19 @@ def generate_launch_description():
     base_node = Node(
         package='drone_control',
         executable='base_node',
-        name='drone_base'
+        name='base_node'
         )
     # Nodo Controller (C++)
     controller_node = Node(
         package='drone_control',
         executable='controller_node',
-        name='drone_controller'
+        name='controller_node'
     )
     # Nodo de Seguridad
     security_node = Node(
         package='drone_control',
         executable = 'security_node',
-        name='drone_security'
+        name='security_node'
 
     )
     # TF Estática: Sensor LIDAR a 10cm sobre el dron [cite: 27]
